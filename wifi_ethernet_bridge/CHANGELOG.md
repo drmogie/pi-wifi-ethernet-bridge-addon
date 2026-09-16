@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.09.16.3
+
+- Added friendly display names/descriptions for the Configuration tab's
+  options (WiFi Interface, Ethernet Interface, Enable mDNS Reflector)
+  via `translations/en.yaml`, so the form no longer shows the raw
+  underscored option keys. The underlying option keys themselves are
+  unchanged.
+
 ## 2026.09.16.2
 
 - Fixed `build.yaml`'s `build_from` values (`debian:bookworm-slim`) failing
