@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.09.17.1
+
+- Fixed `s6-overlay-suexec: fatal: can only run as pid 1` on start.
+  The `.2` fix switched `build_from` to Home Assistant's own Debian base
+  images, which already bundle S6-Overlay as their own init system (PID 1).
+  Supervisor was still also wrapping the container in its own default init,
+  so S6-Overlay ended up one level below PID 1 and refused to run. Added
+  `init: false` to `config.yaml` to tell Supervisor this base image already
+  provides its own init, matching Home Assistant's own example add-ons that
+  build from these images.
+
 ## 2026.09.16.3
 
 - Added friendly display names/descriptions for the Configuration tab's
