@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.09.18.3
+
+- Still fixing `ip_forward: Read-only file system` — `full_access: true`
+  alone wasn't enough. Supervisor applies an AppArmor confinement profile
+  to add-on containers separately from Docker's privileged mode, and that
+  profile can still block writes to `/proc/sys` even under `full_access`.
+  Added `apparmor: false` to fully disable it for this add-on.
+- **Important:** security-related option changes like `full_access`,
+  `apparmor`, `privileged`, and `host_network` often don't take effect on
+  a normal update or restart — Supervisor can keep reusing the
+  container's original security profile. After updating to this version,
+  fully **uninstall** the add-on and **reinstall** it fresh rather than
+  just restarting it, so Supervisor rebuilds the container with the
+  current security settings.
+
 ## 2026.09.18.2
 
 - Fixed `avahi-daemon failed to start` when the mDNS reflector option is
