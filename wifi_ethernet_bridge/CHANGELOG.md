@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026.09.18.1
+
+- Fixed the bridge not actually passing traffic between WiFi and Ethernet
+  ("Device not passing through end0"). The log showed
+  `/proc/sys/net/ipv4/ip_forward: Read-only file system` — Docker mounts
+  `/proc/sys` read-only inside add-on containers regardless of the
+  `NET_ADMIN`/`NET_RAW` capabilities already granted, so kernel IP
+  forwarding was never actually enabled even though parprouted still
+  answered ARP requests and the log claimed the bridge was "up". Added
+  `full_access: true` to `config.yaml` so Supervisor runs the container in
+  Docker's privileged mode, which lifts the read-only restriction on
+  `/proc/sys` and lets `run.sh` actually turn on `ip_forward`.
+
 ## 2026.09.17.1
 
 - Fixed `s6-overlay-suexec: fatal: can only run as pid 1` on start.

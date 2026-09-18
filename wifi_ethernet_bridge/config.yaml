@@ -10,6 +10,7 @@ startup: services
 boot: auto
 init: false
 host_network: true
+full_access: true
 privileged:
   - NET_ADMIN
   - NET_RAW
