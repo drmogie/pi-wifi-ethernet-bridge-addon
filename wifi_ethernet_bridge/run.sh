@@ -39,6 +39,7 @@ WLAN_IF=$(jq -r '.wlan_interface // "wlan0"' "$OPTIONS_FILE")
 ETH_IF=$(jq -r '.eth_interface // "eth0"' "$OPTIONS_FILE")
 ENABLE_AVAHI=$(jq -r '.enable_avahi_reflector // false' "$OPTIONS_FILE")
 DEBUG_MODE=$(jq -r '.debug_mode // "basic"' "$OPTIONS_FILE")
+DHCP_SERVER_IP=$(jq -r '.dhcp_server_ip // ""' "$OPTIONS_FILE")
 case "$DEBUG_MODE" in
   off|basic|verbose|packet_capture) ;;
   *) log "WARNING: unrecognized debug_mode '$DEBUG_MODE', falling back to 'basic'"; DEBUG_MODE="basic" ;;
@@ -242,8 +243,22 @@ if [ "$ENABLE_AVAHI" = "true" ]; then
 fi
 
 start_dhcp_helper() {
-  log "Starting dhcp-helper (relays DHCP requests: $ETH_IF -> $WLAN_IF)"
-  /usr/sbin/dhcp-helper -n -i "$ETH_IF" -b "$WLAN_IF" &
+  if [ -n "$DHCP_SERVER_IP" ]; then
+    # Unicast relay straight to a known DHCP server address, instead of
+    # broadcasting the relayed request out onto $WLAN_IF. Broadcast relay
+    # (-b) is the default because it needs no server address, but some DHCP
+    # servers only reliably process a relayed (non-zero giaddr) packet when
+    # it's addressed directly to them rather than arriving as a broadcast
+    # frame on the segment - captures have shown dhcp-helper correctly
+    # relaying with a proper giaddr via broadcast, yet getting no reply from
+    # a specific, otherwise-healthy DHCP server, which this option is meant
+    # to rule in or out.
+    log "Starting dhcp-helper (relays DHCP requests: $ETH_IF -> $WLAN_IF, unicast to $DHCP_SERVER_IP)"
+    /usr/sbin/dhcp-helper -n -i "$ETH_IF" -s "$DHCP_SERVER_IP" &
+  else
+    log "Starting dhcp-helper (relays DHCP requests: $ETH_IF -> $WLAN_IF, broadcast on $WLAN_IF)"
+    /usr/sbin/dhcp-helper -n -i "$ETH_IF" -b "$WLAN_IF" &
+  fi
   DHCP_PID=$!
 }
 
