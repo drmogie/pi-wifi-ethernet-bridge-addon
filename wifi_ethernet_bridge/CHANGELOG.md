@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026.09.18.4
+
+- Reconsidered the `ip_forward: Read-only file system` failure: Home
+  Assistant OS's host almost certainly already has IPv4 forwarding
+  enabled (Docker itself depends on it for its own networking), so the
+  failed write was likely harmless the whole time - `run.sh` now checks
+  the actual current value first and only logs a real error if it's
+  genuinely not already 1, instead of always treating the write as
+  required.
+- Added the actual likely fix for "not passing through end0": Docker
+  manages its own rules and default policy on the host's `FORWARD`
+  chain, and does not automatically allow traffic between two
+  non-Docker interfaces like `wlan0`/`end0` even with IPv4 forwarding
+  enabled - packets can be silently dropped there regardless of
+  parprouted/dhcp-helper working correctly. `run.sh` now explicitly
+  inserts `iptables` ACCEPT rules for both directions between the two
+  configured interfaces (removed again on stop), and the `iptables`
+  package was added to the Dockerfile.
+
 ## 2026.09.18.3
 
 - Still fixing `ip_forward: Read-only file system` — `full_access: true`

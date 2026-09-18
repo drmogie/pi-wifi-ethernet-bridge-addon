@@ -38,6 +38,10 @@ cleanup() {
     pkill -x avahi-daemon 2>/dev/null || true
     pkill -x dbus-daemon 2>/dev/null || true
   fi
+  if command -v iptables > /dev/null 2>&1; then
+    iptables -D FORWARD -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT 2>/dev/null || true
+    iptables -D FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || true
+  fi
   ip link set "$WLAN_IF" promisc off 2>/dev/null || true
   if [ -n "$WLAN_IP" ]; then
     ip addr del "${WLAN_IP}/32" dev "$ETH_IF" 2>/dev/null || true
@@ -45,9 +49,19 @@ cleanup() {
   ip link set dev "$ETH_IF" down 2>/dev/null || true
 }
 
-log "Enabling IPv4 forwarding"
-if ! echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null; then
-  log "WARNING: could not enable ip_forward. Confirm 'host_network' and NET_ADMIN are set for this add-on."
+CURRENT_IP_FORWARD=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "unknown")
+if [ "$CURRENT_IP_FORWARD" = "1" ]; then
+  log "IPv4 forwarding is already enabled on this device (ip_forward=1) - nothing to do"
+else
+  log "Enabling IPv4 forwarding (currently '$CURRENT_IP_FORWARD')"
+  if echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null; then
+    log "IPv4 forwarding enabled"
+  else
+    log "ERROR: ip_forward is '$CURRENT_IP_FORWARD' and this add-on could not change it (Read-only file system)."
+    log "The bridge cannot pass traffic without this. On Home Assistant OS this is normally"
+    log "already enabled by the host; if it truly isn't, it has to be set on the host itself,"
+    log "e.g. 'sysctl -w net.ipv4.ip_forward=1' from the Terminal & SSH add-on."
+  fi
 fi
 
 log "Waiting for $WLAN_IF to get an IPv4 address (Home Assistant's own WiFi connection)..."
@@ -71,6 +85,20 @@ log "so Home Assistant's own network manager doesn't also try to configure it."
 ip addr add "${WLAN_IP}/32" dev "$ETH_IF" 2>/dev/null
 ip link set dev "$ETH_IF" up
 ip link set "$WLAN_IF" promisc on
+
+# Docker manages its own rules and default policy on the host's FORWARD chain,
+# and does not automatically allow traffic between two non-Docker interfaces
+# like these - even with ip_forward enabled, packets can be silently dropped
+# here. Explicitly allow forwarding both directions between the two interfaces.
+if command -v iptables > /dev/null 2>&1; then
+  log "Adding iptables FORWARD rules to allow traffic between $ETH_IF and $WLAN_IF"
+  iptables -C FORWARD -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT 2>/dev/null || \
+    iptables -I FORWARD 1 -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT
+  iptables -C FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || \
+    iptables -I FORWARD 1 -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT
+else
+  log "WARNING: iptables not available; cannot confirm the host's FORWARD chain allows this traffic"
+fi
 
 if [ "$ENABLE_AVAHI" = "true" ]; then
   log "Enabling mDNS (avahi) reflector between $WLAN_IF and $ETH_IF"
