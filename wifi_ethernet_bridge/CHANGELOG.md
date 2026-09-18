@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026.09.18.8
+
+- Major finding from a `.7` packet capture: a genuine external DHCP request
+  (a real MAC address, not this add-on's own) was caught arriving on the
+  Ethernet interface, proving a client device IS plugged in, powered on,
+  and actively trying to get an IP - the "nothing is reaching the port"
+  theory from `.6`/`.7`'s flat RX counters and empty ARP tables was wrong,
+  or at least incomplete. The packet nearly didn't show up at all, for two
+  reasons the `.7` capture didn't account for: `parprouted`'s own constant
+  self-generated ARP probing was consuming most of each capture's small
+  15-packet budget, and the capture only ever watched the Ethernet side, so
+  there was no way to tell whether `dhcp-helper` actually relayed the
+  request onward, or whether the WiFi router replied.
+- Reworked the `packet_capture` debug mode to fix both: it now filters to
+  DHCP traffic only (port 67/68, no more competing with ARP for the
+  capture budget) and runs the capture on **both** the Ethernet and WiFi
+  interfaces at once, in parallel, for a fixed 10s window each cycle. This
+  should make the full relay round trip visible in a single log snapshot -
+  a client's request on the Ethernet side, whether `dhcp-helper` relays it
+  onto the WiFi side, and whether the router replies - which is what's
+  needed to pin down exactly where the DHCP exchange is breaking down.
+
 ## 2026.09.18.7
 
 - Added a configurable **Debug Mode** option (`debug_mode`, in the

@@ -60,10 +60,13 @@ debug_mode: basic
     entries seen on the Ethernet interface, and forwarding-rule counters.
   - `verbose` — the same, every ~10s, plus the routing table, ARP entries on
     the WiFi interface too, and RX/TX statistics for both interfaces.
-  - `packet_capture` — everything in `verbose`, plus a short real packet
-    capture (ARP + DHCP only) on the Ethernet interface each cycle. The most
-    detail available; use this if `verbose` still isn't enough to tell
-    what's happening.
+  - `packet_capture` — everything in `verbose`, plus a real DHCP-only
+    packet capture run on **both** the Ethernet and WiFi interfaces at the
+    same time each cycle, so you can see the full relay round trip: a
+    client's DHCP request arriving on Ethernet, `dhcp-helper` relaying it
+    onto WiFi, and the router's reply coming back. The most detail
+    available; use this if `verbose` still isn't enough to tell what's
+    happening.
 
 ## How it works
 

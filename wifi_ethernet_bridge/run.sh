@@ -79,8 +79,9 @@ cleanup() {
 #                      counters, every ~30s
 #   verbose         - the same as basic, every ~10s, plus the routing table,
 #                      ARP entries on $WLAN_IF too, and RX/TX interface stats
-#   packet_capture  - everything in verbose, plus a short real packet capture
-#                      (ARP + DHCP traffic) on $ETH_IF each cycle
+#   packet_capture  - everything in verbose, plus a DHCP-only (port 67/68)
+#                      packet capture run simultaneously on BOTH $ETH_IF and
+#                      $WLAN_IF each cycle, to see the full relay round trip
 case "$DEBUG_MODE" in
   verbose|packet_capture) DIAG_INTERVAL_LOOPS=2 ;;   # ~10s
   *)                      DIAG_INTERVAL_LOOPS=6 ;;   # ~30s
@@ -118,10 +119,30 @@ diag_snapshot() {
 
   if [ "$DEBUG_MODE" = "packet_capture" ]; then
     if command -v tcpdump > /dev/null 2>&1; then
-      log "Capturing up to 15 ARP/DHCP packets on $ETH_IF for 8s (nothing shown below means nothing arrived):"
-      timeout 8 tcpdump -i "$ETH_IF" -nn -c 15 'arp or (udp and (port 67 or port 68))' 2>&1 | \
-        grep -v '^tcpdump: verbose output suppressed\|^listening on\|packets captured\|packets received by filter\|packets dropped by kernel' | \
+      # DHCP-only (port 67/68), captured on BOTH interfaces at once, run in
+      # the background in parallel and joined with `wait`. Earlier releases
+      # captured "arp or dhcp" on $ETH_IF alone with a small packet cap -
+      # parprouted's own constant self-generated ARP probing could consume
+      # nearly the whole capture budget and crowd out a real but rare DHCP
+      # packet, and watching only $ETH_IF couldn't show whether dhcp-helper
+      # actually relayed a request onward or whether the WiFi router replied.
+      # Filtering to DHCP only and watching both sides at once makes the full
+      # relay round trip (client -> $ETH_IF -> dhcp-helper -> $WLAN_IF ->
+      # router -> back) visible in a single snapshot.
+      CAP_DIR=$(mktemp -d)
+      log "Capturing DHCP traffic (port 67/68 only) on $ETH_IF and $WLAN_IF for 10s (nothing shown for an interface means no DHCP traffic arrived there):"
+      timeout 10 tcpdump -i "$ETH_IF" -nn -e 'udp and (port 67 or port 68)' > "$CAP_DIR/eth.log" 2>&1 &
+      ETH_CAP_PID=$!
+      timeout 10 tcpdump -i "$WLAN_IF" -nn -e 'udp and (port 67 or port 68)' > "$CAP_DIR/wlan.log" 2>&1 &
+      WLAN_CAP_PID=$!
+      wait "$ETH_CAP_PID" "$WLAN_CAP_PID" 2>/dev/null
+      log "-- $ETH_IF (client <-> dhcp-helper) --"
+      grep -v '^tcpdump: verbose output suppressed\|^listening on\|packets captured\|packets received by filter\|packets dropped by kernel' "$CAP_DIR/eth.log" 2>/dev/null | \
         while IFS= read -r line; do log "  $line"; done
+      log "-- $WLAN_IF (dhcp-helper <-> WiFi router) --"
+      grep -v '^tcpdump: verbose output suppressed\|^listening on\|packets captured\|packets received by filter\|packets dropped by kernel' "$CAP_DIR/wlan.log" 2>/dev/null | \
+        while IFS= read -r line; do log "  $line"; done
+      rm -rf "$CAP_DIR"
     else
       log "WARNING: tcpdump not available; cannot do a packet capture"
     fi

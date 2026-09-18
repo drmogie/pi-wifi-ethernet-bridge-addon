@@ -23,7 +23,9 @@ configuration:
       a snapshot every ~30s of interface state, ARP entries seen on the
       Ethernet interface, and forwarding-rule packet counters. Verbose: the
       same, every ~10s, plus routing table and interface RX/TX statistics.
-      Packet Capture: everything in Verbose, plus a short real packet
-      capture (ARP and DHCP traffic) on the Ethernet interface each cycle -
-      the most detailed option, useful when nothing else shows why traffic
-      isn't passing through.
+      Packet Capture: everything in Verbose, plus a real DHCP-only packet
+      capture run on BOTH the Ethernet and WiFi interfaces at the same time
+      each cycle, so you can see the full relay round trip (a client's
+      request arriving on Ethernet, dhcp-helper relaying it onto WiFi, and
+      the router's reply) - the most detailed option, useful when nothing
+      else shows why traffic isn't passing through.
