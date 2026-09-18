@@ -5,6 +5,8 @@ FROM $BUILD_FROM
 # dhcp-helper  - relays DHCP broadcasts from the Ethernet client to the WiFi network
 # iproute2     - `ip` command, used to bring interfaces up/down and set promisc mode
 # avahi-daemon - optional mDNS reflector, so .local names resolve across the bridge
+# dbus         - avahi-daemon needs a running D-Bus system bus to start at all;
+#                run.sh starts a private one inside the container for this
 # jq           - reads the add-on's options.json
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -12,6 +14,7 @@ RUN apt-get update && \
         dhcp-helper \
         iproute2 \
         avahi-daemon \
+        dbus \
         jq \
         procps \
     && apt-get clean && rm -rf /var/lib/apt/lists/*

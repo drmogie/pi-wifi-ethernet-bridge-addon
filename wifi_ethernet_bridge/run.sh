@@ -36,6 +36,7 @@ cleanup() {
   pkill -x parprouted 2>/dev/null || true
   if [ "$ENABLE_AVAHI" = "true" ]; then
     pkill -x avahi-daemon 2>/dev/null || true
+    pkill -x dbus-daemon 2>/dev/null || true
   fi
   ip link set "$WLAN_IF" promisc off 2>/dev/null || true
   if [ -n "$WLAN_IP" ]; then
@@ -77,6 +78,13 @@ if [ "$ENABLE_AVAHI" = "true" ]; then
     sed -i 's/^#*enable-reflector=.*/enable-reflector=yes/' /etc/avahi/avahi-daemon.conf
   else
     printf '\n[reflector]\nenable-reflector=yes\n' >> /etc/avahi/avahi-daemon.conf
+  fi
+  # avahi-daemon requires a D-Bus system bus to even start, which this minimal
+  # container image doesn't have running by default. Start a private one just
+  # for avahi's own use - it doesn't need to see the host's real D-Bus.
+  mkdir -p /var/run/dbus
+  if ! pgrep -x dbus-daemon > /dev/null; then
+    dbus-daemon --system --fork || log "WARNING: dbus-daemon failed to start; avahi reflector needs it"
   fi
   avahi-daemon --daemonize --no-drop-root || log "WARNING: avahi-daemon failed to start"
 fi

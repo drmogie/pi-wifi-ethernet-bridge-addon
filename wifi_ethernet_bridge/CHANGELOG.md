@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026.09.18.2
+
+- Fixed `avahi-daemon failed to start` when the mDNS reflector option is
+  enabled. avahi-daemon requires a running D-Bus system bus just to start
+  at all, which this minimal container image didn't have. `run.sh` now
+  starts a private `dbus-daemon --system` instance inside the container
+  (added the `dbus` package) purely for avahi's own use, before starting
+  avahi-daemon; it's stopped alongside avahi-daemon on shutdown. No
+  changes needed on the Home Assistant side.
+- Corrected `config.yaml`'s `version` string, which was accidentally left
+  at `2026.09.17.1` in the previous release despite that release actually
+  being tagged `2026.09.18.1`.
+
 ## 2026.09.18.1
 
 - Fixed the bridge not actually passing traffic between WiFi and Ethernet
