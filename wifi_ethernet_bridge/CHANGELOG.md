@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026.09.18.8
+## 2026.09.18.08
 
 - Major finding from a `.7` packet capture: a genuine external DHCP request
   (a real MAC address, not this add-on's own) was caught arriving on the
