@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026.09.18.7
+
+- Added a configurable **Debug Mode** option (`debug_mode`, in the
+  Configuration tab), so the amount of diagnostic detail written to the log
+  can be adjusted without needing SSH/device access:
+  - **Off** - no periodic diagnostics, just startup/error messages.
+  - **Basic** (default) - the interface-state/ARP/FORWARD-counter snapshot
+    added in `.18.6`, every ~30s.
+  - **Verbose** - the same, every ~10s, plus the routing table, ARP entries
+    on the WiFi interface too, and RX/TX packet/byte/error statistics for
+    both interfaces (useful to see whether the kernel is receiving any
+    frames at all on the Ethernet port, even before ARP/forwarding come
+    into it).
+  - **Packet Capture** - everything in Verbose, plus a short real `tcpdump`
+    capture (ARP + DHCP traffic only) on the Ethernet interface each cycle,
+    logged directly - the most direct evidence of whether anything is
+    actually arriving on that port. Added the `tcpdump` package for this.
+- Still investigating the underlying "no network on the plugged-in device"
+  issue - `.18.6`'s diagnostics showed zero ARP entries and zero forwarded
+  packets over several minutes, which points at something before the
+  bridge software even gets involved (nothing reaching the port at all, or
+  no device was actually connected during that test) rather than a
+  `parprouted`/`dhcp-helper` configuration problem. These new modes are
+  meant to pin that down on the next test.
+
 ## 2026.09.18.6
 
 - Confirmed `.5`'s `sysctls`/`iptables-nft` fixes actually took effect (a

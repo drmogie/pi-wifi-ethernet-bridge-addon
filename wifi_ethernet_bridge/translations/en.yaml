@@ -15,3 +15,15 @@ configuration:
       Reflect mDNS (.local name / Bonjour) traffic between the WiFi and
       Ethernet interfaces, so devices on either side can discover each other
       by name. Leave off if you don't need this.
+  debug_mode:
+    name: Debug Mode
+    description: >-
+      How much diagnostic detail the add-on writes to its log, with no
+      SSH/device access needed. Off: just startup messages. Basic (default):
+      a snapshot every ~30s of interface state, ARP entries seen on the
+      Ethernet interface, and forwarding-rule packet counters. Verbose: the
+      same, every ~10s, plus routing table and interface RX/TX statistics.
+      Packet Capture: everything in Verbose, plus a short real packet
+      capture (ARP and DHCP traffic) on the Ethernet interface each cycle -
+      the most detailed option, useful when nothing else shows why traffic
+      isn't passing through.

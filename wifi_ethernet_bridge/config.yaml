@@ -1,5 +1,5 @@
 name: "WiFi to Ethernet Bridge"
-version: "2026.09.18.6"
+version: "2026.09.18.7"
 slug: "wifi_ethernet_bridge"
 description: "Share this device's WiFi connection out its Ethernet port (proxy ARP + DHCP relay), so a wired-only device plugged into it gets network access."
 url: "https://github.com/drmogie/pi-wifi-ethernet-bridge-addon"
@@ -19,7 +19,9 @@ options:
   wlan_interface: wlan0
   eth_interface: eth0
   enable_avahi_reflector: false
+  debug_mode: basic
 schema:
   wlan_interface: str
   eth_interface: str
   enable_avahi_reflector: bool
+  debug_mode: "list(off|basic|verbose|packet_capture)"

@@ -43,6 +43,7 @@ don't need to edit YAML by hand:
 wlan_interface: wlan0
 eth_interface: eth0
 enable_avahi_reflector: false
+debug_mode: basic
 ```
 
 - **wlan_interface**: the WiFi interface name. `wlan0` on virtually all Pi
@@ -52,6 +53,17 @@ enable_avahi_reflector: false
   traffic is reflected between the two interfaces, so devices on either side
   can discover each other by name (matches the optional `avahi-daemon.conf`
   step in the original blog post). Leave `false` if you don't need this.
+- **debug_mode**: how much diagnostic detail is written to the Log tab, with
+  no SSH needed:
+  - `off` — just startup/error messages.
+  - `basic` (default) — a snapshot every ~30s of interface state, ARP
+    entries seen on the Ethernet interface, and forwarding-rule counters.
+  - `verbose` — the same, every ~10s, plus the routing table, ARP entries on
+    the WiFi interface too, and RX/TX statistics for both interfaces.
+  - `packet_capture` — everything in `verbose`, plus a short real packet
+    capture (ARP + DHCP only) on the Ethernet interface each cycle. The most
+    detail available; use this if `verbose` still isn't enough to tell
+    what's happening.
 
 ## How it works
 

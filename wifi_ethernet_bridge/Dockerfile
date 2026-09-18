@@ -12,6 +12,9 @@ FROM $BUILD_FROM
 # dbus         - avahi-daemon needs a running D-Bus system bus to start at all;
 #                run.sh starts a private one inside the container for this
 # jq           - reads the add-on's options.json
+# tcpdump      - used only when the "debug_mode" option is set to "packet_capture",
+#                to show real packets (or their absence) arriving on each interface
+#                directly in the add-on's log, with no SSH/device access needed
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         parprouted \
@@ -22,6 +25,7 @@ RUN apt-get update && \
         dbus \
         jq \
         procps \
+        tcpdump \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY run.sh /run.sh

@@ -38,6 +38,12 @@ fi
 WLAN_IF=$(jq -r '.wlan_interface // "wlan0"' "$OPTIONS_FILE")
 ETH_IF=$(jq -r '.eth_interface // "eth0"' "$OPTIONS_FILE")
 ENABLE_AVAHI=$(jq -r '.enable_avahi_reflector // false' "$OPTIONS_FILE")
+DEBUG_MODE=$(jq -r '.debug_mode // "basic"' "$OPTIONS_FILE")
+case "$DEBUG_MODE" in
+  off|basic|verbose|packet_capture) ;;
+  *) log "WARNING: unrecognized debug_mode '$DEBUG_MODE', falling back to 'basic'"; DEBUG_MODE="basic" ;;
+esac
+log "Debug mode: $DEBUG_MODE"
 
 WLAN_IP=""
 STOP=0
@@ -64,13 +70,24 @@ cleanup() {
 }
 
 # Periodic diagnostic snapshot, logged every DIAG_INTERVAL_LOOPS iterations of
-# the main watch loop (each iteration sleeps 5s, so this is roughly every
-# DIAG_INTERVAL_LOOPS * 5 seconds). Purely informational - never affects the
-# bridge itself - but this is the only way to see whether traffic is actually
-# reaching each side without SSH access to the device.
-DIAG_INTERVAL_LOOPS=6
+# the main watch loop (each iteration sleeps 5s). Purely informational - never
+# affects the bridge itself - but this is the only way to see whether traffic
+# is actually reaching each side without SSH access to the device. How much
+# detail is logged, and how often, depends on the "debug_mode" option:
+#   off             - no periodic snapshots at all (only startup/error logs)
+#   basic (default) - interface state, ARP entries on $ETH_IF, FORWARD chain
+#                      counters, every ~30s
+#   verbose         - the same as basic, every ~10s, plus the routing table,
+#                      ARP entries on $WLAN_IF too, and RX/TX interface stats
+#   packet_capture  - everything in verbose, plus a short real packet capture
+#                      (ARP + DHCP traffic) on $ETH_IF each cycle
+case "$DEBUG_MODE" in
+  verbose|packet_capture) DIAG_INTERVAL_LOOPS=2 ;;   # ~10s
+  *)                      DIAG_INTERVAL_LOOPS=6 ;;   # ~30s
+esac
+
 diag_snapshot() {
-  log "--- diagnostic snapshot ---"
+  log "--- diagnostic snapshot ($DEBUG_MODE) ---"
   log "$ETH_IF: $(ip -4 -br addr show "$ETH_IF" 2>/dev/null) (promisc: $(ip link show "$ETH_IF" 2>/dev/null | grep -o PROMISC || echo off))"
   log "$WLAN_IF: $(ip -4 -br addr show "$WLAN_IF" 2>/dev/null) (promisc: $(ip link show "$WLAN_IF" 2>/dev/null | grep -o PROMISC || echo off))"
   ETH_NEIGH=$(ip neigh show dev "$ETH_IF" 2>/dev/null)
@@ -84,6 +101,32 @@ diag_snapshot() {
     log "FORWARD chain packet/byte counters ($ETH_IF -> $WLAN_IF, $WLAN_IF -> $ETH_IF):"
     "$IPTABLES_BIN" -L FORWARD -v -n 2>/dev/null | grep -E "$ETH_IF|$WLAN_IF" | while IFS= read -r line; do log "  $line"; done
   fi
+
+  if [ "$DEBUG_MODE" = "verbose" ] || [ "$DEBUG_MODE" = "packet_capture" ]; then
+    log "RX/TX stats for $ETH_IF:"
+    ip -s link show "$ETH_IF" 2>/dev/null | tail -n +2 | while IFS= read -r line; do log "  $line"; done
+    log "RX/TX stats for $WLAN_IF:"
+    ip -s link show "$WLAN_IF" 2>/dev/null | tail -n +2 | while IFS= read -r line; do log "  $line"; done
+    WLAN_NEIGH=$(ip neigh show dev "$WLAN_IF" 2>/dev/null)
+    if [ -n "$WLAN_NEIGH" ]; then
+      log "ARP/neighbor entries on $WLAN_IF:"
+      echo "$WLAN_NEIGH" | while IFS= read -r line; do log "  $line"; done
+    fi
+    log "Routing table:"
+    ip route show 2>/dev/null | while IFS= read -r line; do log "  $line"; done
+  fi
+
+  if [ "$DEBUG_MODE" = "packet_capture" ]; then
+    if command -v tcpdump > /dev/null 2>&1; then
+      log "Capturing up to 15 ARP/DHCP packets on $ETH_IF for 8s (nothing shown below means nothing arrived):"
+      timeout 8 tcpdump -i "$ETH_IF" -nn -c 15 'arp or (udp and (port 67 or port 68))' 2>&1 | \
+        grep -v '^tcpdump: verbose output suppressed\|^listening on\|packets captured\|packets received by filter\|packets dropped by kernel' | \
+        while IFS= read -r line; do log "  $line"; done
+    else
+      log "WARNING: tcpdump not available; cannot do a packet capture"
+    fi
+  fi
+
   log "--- end diagnostic snapshot ---"
 }
 
@@ -200,7 +243,7 @@ while [ "$STOP" = "0" ]; do
     break
   fi
   LOOP_COUNT=$((LOOP_COUNT + 1))
-  if [ "$((LOOP_COUNT % DIAG_INTERVAL_LOOPS))" = "0" ]; then
+  if [ "$DEBUG_MODE" != "off" ] && [ "$((LOOP_COUNT % DIAG_INTERVAL_LOOPS))" = "0" ]; then
     diag_snapshot
   fi
   sleep 5
