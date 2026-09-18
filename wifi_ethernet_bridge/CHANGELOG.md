@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026.09.18.5
+
+- Found the actual fix for "not passing through end0" by comparing against a
+  working community add-on with the same underlying problem
+  (eximius313/ha-wifi-gateway-addon, a WiFi-to-Ethernet gateway rather than a
+  bridge, but hitting the same Docker networking obstacles):
+  - Replaced the runtime `full_access: true` + `apparmor: false` workaround
+    for `ip_forward` with the correct, declarative Supervisor mechanism:
+    `sysctls: net.ipv4.ip_forward: 1` in `config.yaml`. Supervisor applies
+    this to the container directly, so it no longer depends on Docker
+    privileged mode or disabling AppArmor confinement, neither of which
+    actually fixed the problem in testing. `full_access` and `apparmor:
+    false` have been removed.
+  - The `.4` fix only inserted interface-specific `FORWARD` ACCEPT rules,
+    which wasn't reliably enough - Docker also sets its own default
+    **policy** on the `FORWARD` chain. `run.sh` now also explicitly sets
+    `-P FORWARD ACCEPT`, matching the reference add-on's proven fix.
+  - `run.sh` now prefers the `iptables-nft` binary over plain `iptables`
+    when both are present, matching the reference add-on (Home Assistant
+    OS's host firewall is nftables-backed).
+  - **Important:** as with any `config.yaml` security-option change, fully
+    **uninstall** and **reinstall** the add-on after updating to this
+    version rather than just restarting it, so Supervisor recreates the
+    container with the new `sysctls` setting applied.
+
 ## 2026.09.18.4
 
 - Reconsidered the `ip_forward: Read-only file system` failure: Home

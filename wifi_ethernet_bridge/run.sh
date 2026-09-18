@@ -17,6 +17,19 @@ log() {
   echo "[wifi-ethernet-bridge] $*"
 }
 
+# Prefer iptables-nft when it's available. Home Assistant OS's host runs an
+# nftables-backed firewall; a reference add-on that reliably passes traffic
+# in this same situation (eximius313/ha-wifi-gateway-addon) explicitly uses
+# iptables-nft rather than plain iptables, which can otherwise talk to a
+# different, disconnected rule set inside the container.
+if command -v iptables-nft > /dev/null 2>&1; then
+  IPTABLES_BIN="iptables-nft"
+elif command -v iptables > /dev/null 2>&1; then
+  IPTABLES_BIN="iptables"
+else
+  IPTABLES_BIN=""
+fi
+
 if [ ! -f "$OPTIONS_FILE" ]; then
   log "ERROR: $OPTIONS_FILE not found. This add-on must be run under Home Assistant Supervisor."
   exit 1
@@ -38,9 +51,9 @@ cleanup() {
     pkill -x avahi-daemon 2>/dev/null || true
     pkill -x dbus-daemon 2>/dev/null || true
   fi
-  if command -v iptables > /dev/null 2>&1; then
-    iptables -D FORWARD -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT 2>/dev/null || true
-    iptables -D FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || true
+  if [ -n "$IPTABLES_BIN" ]; then
+    "$IPTABLES_BIN" -D FORWARD -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT 2>/dev/null || true
+    "$IPTABLES_BIN" -D FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || true
   fi
   ip link set "$WLAN_IF" promisc off 2>/dev/null || true
   if [ -n "$WLAN_IP" ]; then
@@ -51,16 +64,20 @@ cleanup() {
 
 CURRENT_IP_FORWARD=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "unknown")
 if [ "$CURRENT_IP_FORWARD" = "1" ]; then
-  log "IPv4 forwarding is already enabled on this device (ip_forward=1) - nothing to do"
+  log "IPv4 forwarding is enabled (ip_forward=1)"
 else
-  log "Enabling IPv4 forwarding (currently '$CURRENT_IP_FORWARD')"
+  # config.yaml now sets this declaratively via `sysctls: net.ipv4.ip_forward: 1`,
+  # which Supervisor applies to the container at creation time (before this
+  # script ever runs), so this should never actually be needed. Still attempt
+  # it and log clearly if the sysctls option didn't take effect for some reason.
+  log "ip_forward is '$CURRENT_IP_FORWARD', expected 1 - attempting to set it directly"
   if echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null; then
     log "IPv4 forwarding enabled"
   else
-    log "ERROR: ip_forward is '$CURRENT_IP_FORWARD' and this add-on could not change it (Read-only file system)."
-    log "The bridge cannot pass traffic without this. On Home Assistant OS this is normally"
-    log "already enabled by the host; if it truly isn't, it has to be set on the host itself,"
-    log "e.g. 'sysctl -w net.ipv4.ip_forward=1' from the Terminal & SSH add-on."
+    log "ERROR: could not set ip_forward (Read-only file system) and it is not already 1."
+    log "This add-on sets 'sysctls: net.ipv4.ip_forward: 1' in config.yaml, which Supervisor"
+    log "should apply automatically - if you still see this, fully uninstall and reinstall"
+    log "the add-on so Supervisor recreates the container with the current config."
   fi
 fi
 
@@ -86,18 +103,23 @@ ip addr add "${WLAN_IP}/32" dev "$ETH_IF" 2>/dev/null
 ip link set dev "$ETH_IF" up
 ip link set "$WLAN_IF" promisc on
 
-# Docker manages its own rules and default policy on the host's FORWARD chain,
-# and does not automatically allow traffic between two non-Docker interfaces
-# like these - even with ip_forward enabled, packets can be silently dropped
-# here. Explicitly allow forwarding both directions between the two interfaces.
-if command -v iptables > /dev/null 2>&1; then
-  log "Adding iptables FORWARD rules to allow traffic between $ETH_IF and $WLAN_IF"
-  iptables -C FORWARD -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT 2>/dev/null || \
-    iptables -I FORWARD 1 -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT
-  iptables -C FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || \
-    iptables -I FORWARD 1 -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT
+# Docker manages its own rules AND default policy on the host's FORWARD
+# chain, and does not automatically allow traffic between two non-Docker
+# interfaces like these - even with ip_forward enabled, packets can be
+# silently dropped here. Interface-specific ACCEPT rules alone weren't
+# enough to fix this in practice; a working reference add-on with the same
+# problem (eximius313/ha-wifi-gateway-addon) fixes it by setting the
+# chain's default POLICY to ACCEPT, so that's done here too, on top of the
+# explicit interface rules.
+if [ -n "$IPTABLES_BIN" ]; then
+  log "Using $IPTABLES_BIN to allow forwarding between $ETH_IF and $WLAN_IF"
+  "$IPTABLES_BIN" -P FORWARD ACCEPT
+  "$IPTABLES_BIN" -C FORWARD -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT 2>/dev/null || \
+    "$IPTABLES_BIN" -I FORWARD 1 -i "$ETH_IF" -o "$WLAN_IF" -j ACCEPT
+  "$IPTABLES_BIN" -C FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || \
+    "$IPTABLES_BIN" -I FORWARD 1 -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT
 else
-  log "WARNING: iptables not available; cannot confirm the host's FORWARD chain allows this traffic"
+  log "WARNING: no iptables binary available; cannot confirm the host's FORWARD chain allows this traffic"
 fi
 
 if [ "$ENABLE_AVAHI" = "true" ]; then
