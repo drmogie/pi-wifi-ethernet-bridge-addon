@@ -29,3 +29,13 @@ configuration:
       request arriving on Ethernet, dhcp-helper relaying it onto WiFi, and
       the router's reply) - the most detailed option, useful when nothing
       else shows why traffic isn't passing through.
+  dhcp_server_ip:
+    name: DHCP Server IP (optional)
+    description: >-
+      Leave blank for the default behavior: relayed DHCP requests are
+      broadcast out the WiFi interface. If a Packet Capture snapshot shows
+      dhcp-helper correctly relaying a request (with a proper relay-agent/
+      Gateway-IP field) but your DHCP server never replies, set this to that
+      server's IP address to relay directly to it via unicast instead -
+      some DHCP servers only respond to relayed requests addressed straight
+      to them.

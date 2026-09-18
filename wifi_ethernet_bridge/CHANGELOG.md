@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026.09.18.10
+
+- Retested with a second, completely different wired client (a PiKVM) -
+  same result as `.09`: `dhcp-helper` relays the request onto WiFi with a
+  correct, well-formed relay-agent (Gateway-IP) field every time, but the
+  DHCP server (identified as Technitium DNS Server) never replies. Getting
+  the same failure with two unrelated client devices rules out anything
+  client-specific and points more strongly at either the DHCP server's own
+  configuration, or at broadcast relay specifically not being accepted by
+  it.
+- Added an optional **DHCP Server IP** setting. Left blank (default),
+  behavior is unchanged: relayed requests are broadcast out the WiFi
+  interface. When set to a DHCP server's address, `dhcp-helper` instead
+  relays directly to it via unicast (`-s`) rather than broadcasting (`-b`)
+  - some DHCP servers only process a relayed (non-zero giaddr) request when
+    it arrives addressed straight to them, not as a broadcast frame on the
+    segment. This is a direct, testable way to rule that in or out without
+    needing to change anything in the DHCP server's own configuration first.
+
 ## 2026.09.18.09
 
 - Confirmed from a `.08` dual-interface capture that `dhcp-helper` DOES

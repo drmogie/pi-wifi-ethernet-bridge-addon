@@ -44,6 +44,7 @@ wlan_interface: wlan0
 eth_interface: eth0
 enable_avahi_reflector: false
 debug_mode: basic
+dhcp_server_ip: ""
 ```
 
 - **wlan_interface**: the WiFi interface name. `wlan0` on virtually all Pi
@@ -67,6 +68,14 @@ debug_mode: basic
     onto WiFi, and the router's reply coming back. The most detail
     available; use this if `verbose` still isn't enough to tell what's
     happening.
+- **dhcp_server_ip** (optional, blank by default): by default, relayed DHCP
+  requests are **broadcast** out the WiFi interface. If a `packet_capture`
+  snapshot shows a correctly relayed request (with a proper relay-agent/
+  Gateway-IP field set) but your DHCP server never replies, even though it
+  answers every other device fine, set this to that server's IP address to
+  relay directly to it via **unicast** instead — some DHCP servers only
+  respond to relayed requests addressed straight to them, not ones arriving
+  as a broadcast frame on the segment.
 
 ## How it works
 
