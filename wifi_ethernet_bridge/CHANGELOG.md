@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026.09.18.09
+
+- Confirmed from a `.08` dual-interface capture that `dhcp-helper` DOES
+  successfully relay the wired client's DHCP request from the Ethernet
+  side onto WiFi (seen once, source-rewritten to this device's own WiFi
+  IP, broadcast out correctly) - but no reply from the real DHCP server
+  ever came back, in any capture window, even though that same server
+  (found at a fixed IP on the WiFi network) is otherwise healthy and
+  answers every other device's normal DHCP traffic instantly. Leading
+  theory: many DHCP servers (dnsmasq in particular, a common choice for
+  a network's DHCP service) silently ignore a relayed request unless the
+  relay agent's address is explicitly trusted in the server's own config
+  - this may need a change on the DHCP server itself, not just here.
+  Added `-vv` to both DHCP packet captures to decode the actual BOOTP
+  fields (relay-agent address, message type) on the next test, which
+  will confirm or rule this out directly.
+- Separately, found and fixed a real stability bug: `parprouted` was
+  crashing outright (killed by a signal, no error output of its own)
+  after a few minutes of running against a busy WiFi network with many
+  other devices' traffic - twice in one test session. Previously this
+  tore down and restarted the ENTIRE add-on (interfaces, iptables rules,
+  promiscuous mode, `dhcp-helper`, avahi all rebuilt from scratch) every
+  time, several seconds of full outage each time it happened. Now
+  `parprouted` (and `dhcp-helper`) run as directly-supervised processes
+  and are individually restarted in place the moment either one dies,
+  with the actual exit code/signal logged - cuts the outage to about a
+  second and keeps the rest of the bridge state untouched. `parprouted`
+  itself is old, lightly-maintained software (its own man page says it
+  was "designed for and tested only with Linux 2.4.x kernels"), so this
+  kind of occasional crash under load may keep happening - the goal here
+  is to make it a non-event rather than to have eliminated it outright.
+
 ## 2026.09.18.08
 
 - Major finding from a `.7` packet capture: a genuine external DHCP request

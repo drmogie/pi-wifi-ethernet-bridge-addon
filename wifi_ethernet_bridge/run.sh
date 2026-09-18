@@ -131,9 +131,14 @@ diag_snapshot() {
       # router -> back) visible in a single snapshot.
       CAP_DIR=$(mktemp -d)
       log "Capturing DHCP traffic (port 67/68 only) on $ETH_IF and $WLAN_IF for 10s (nothing shown for an interface means no DHCP traffic arrived there):"
-      timeout 10 tcpdump -i "$ETH_IF" -nn -e 'udp and (port 67 or port 68)' > "$CAP_DIR/eth.log" 2>&1 &
+      # -vv decodes the actual BOOTP/DHCP fields (giaddr, message type, etc.)
+      # instead of just "Request from <mac>" - needed to see whether the
+      # relayed packet has a relay-agent (giaddr) address set, since some
+      # DHCP servers (dnsmasq in particular) silently ignore relayed
+      # requests unless explicitly configured to trust that relay address.
+      timeout 10 tcpdump -i "$ETH_IF" -nn -e -vv 'udp and (port 67 or port 68)' > "$CAP_DIR/eth.log" 2>&1 &
       ETH_CAP_PID=$!
-      timeout 10 tcpdump -i "$WLAN_IF" -nn -e 'udp and (port 67 or port 68)' > "$CAP_DIR/wlan.log" 2>&1 &
+      timeout 10 tcpdump -i "$WLAN_IF" -nn -e -vv 'udp and (port 67 or port 68)' > "$CAP_DIR/wlan.log" 2>&1 &
       WLAN_CAP_PID=$!
       wait "$ETH_CAP_PID" "$WLAN_CAP_PID" 2>/dev/null
       log "-- $ETH_IF (client <-> dhcp-helper) --"
@@ -236,16 +241,40 @@ if [ "$ENABLE_AVAHI" = "true" ]; then
   avahi-daemon --daemonize --no-drop-root || log "WARNING: avahi-daemon failed to start"
 fi
 
-log "Starting dhcp-helper (relays DHCP requests: $ETH_IF -> $WLAN_IF)"
-/usr/sbin/dhcp-helper -n -i "$ETH_IF" -b "$WLAN_IF" &
-DHCP_PID=$!
+start_dhcp_helper() {
+  log "Starting dhcp-helper (relays DHCP requests: $ETH_IF -> $WLAN_IF)"
+  /usr/sbin/dhcp-helper -n -i "$ETH_IF" -b "$WLAN_IF" &
+  DHCP_PID=$!
+}
 
-log "Starting parprouted (proxy ARP: $ETH_IF <-> $WLAN_IF)"
-# parprouted always forks itself into the background, so we start it and then
-# confirm separately that it actually stayed up.
-/usr/sbin/parprouted "$ETH_IF" "$WLAN_IF"
+start_parprouted() {
+  log "Starting parprouted (proxy ARP: $ETH_IF <-> $WLAN_IF)"
+  # Run with -d (debug/foreground) instead of letting it daemonize itself.
+  # A daemonized parprouted double-forks and detaches, so it was never
+  # actually OUR child process - we could only notice it was gone via
+  # `pgrep`, with no way to see its own error output or its real exit
+  # code/signal when it died. Keeping it as a direct background job (&)
+  # lets us `wait` on it directly for both.
+  /usr/sbin/parprouted -d "$ETH_IF" "$WLAN_IF" &
+  PARPROUTED_PID=$!
+}
+
+# $1 = process name (for the log line), $2 = exit status as bash reports it
+# from `wait` (128+signal if killed by a signal, e.g. 139 = SIGSEGV).
+log_exit_reason() {
+  local name="$1" status="$2"
+  if [ "$status" -gt 128 ] 2>/dev/null; then
+    local sig=$((status - 128))
+    log "$name exited unexpectedly, killed by signal $sig ($(kill -l "$sig" 2>/dev/null || echo unknown)) - restarting it"
+  else
+    log "$name exited unexpectedly with exit code $status - restarting it"
+  fi
+}
+
+start_dhcp_helper
+start_parprouted
 sleep 1
-if ! pgrep -x parprouted > /dev/null; then
+if ! kill -0 "$PARPROUTED_PID" 2>/dev/null; then
   log "ERROR: parprouted failed to start. Check that $ETH_IF and $WLAN_IF exist and this add-on has NET_ADMIN/NET_RAW."
   cleanup
   exit 1
@@ -253,15 +282,28 @@ fi
 
 log "Bridge is up: WiFi ($WLAN_IF, $WLAN_IP) <-> Ethernet ($ETH_IF)"
 
+# parprouted is old, lightly-maintained software (its own man page says it
+# was "designed for and tested only with Linux 2.4.x kernels") and has been
+# observed crashing outright (killed by a signal, no error output of its
+# own) after a few minutes on a busy WiFi network with many other devices'
+# ARP/DHCP traffic. Rather than tearing down and restarting the WHOLE
+# add-on (interfaces, iptables rules, promiscuous mode, dhcp-helper, avahi)
+# every time this happens, restart just the crashed process in place - this
+# keeps the rest of the bridge state intact and cuts the outage from a full
+# container restart cycle down to about a second.
 LOOP_COUNT=0
 while [ "$STOP" = "0" ]; do
   if ! kill -0 "$DHCP_PID" 2>/dev/null; then
-    log "ERROR: dhcp-helper exited unexpectedly."
-    break
+    wait "$DHCP_PID"
+    log_exit_reason "dhcp-helper" "$?"
+    sleep 1
+    start_dhcp_helper
   fi
-  if ! pgrep -x parprouted > /dev/null; then
-    log "ERROR: parprouted exited unexpectedly."
-    break
+  if ! kill -0 "$PARPROUTED_PID" 2>/dev/null; then
+    wait "$PARPROUTED_PID"
+    log_exit_reason "parprouted" "$?"
+    sleep 1
+    start_parprouted
   fi
   LOOP_COUNT=$((LOOP_COUNT + 1))
   if [ "$DEBUG_MODE" != "off" ] && [ "$((LOOP_COUNT % DIAG_INTERVAL_LOOPS))" = "0" ]; then
