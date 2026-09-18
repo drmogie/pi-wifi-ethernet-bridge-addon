@@ -56,10 +56,35 @@ cleanup() {
     "$IPTABLES_BIN" -D FORWARD -i "$WLAN_IF" -o "$ETH_IF" -j ACCEPT 2>/dev/null || true
   fi
   ip link set "$WLAN_IF" promisc off 2>/dev/null || true
+  ip link set "$ETH_IF" promisc off 2>/dev/null || true
   if [ -n "$WLAN_IP" ]; then
     ip addr del "${WLAN_IP}/32" dev "$ETH_IF" 2>/dev/null || true
   fi
   ip link set dev "$ETH_IF" down 2>/dev/null || true
+}
+
+# Periodic diagnostic snapshot, logged every DIAG_INTERVAL_LOOPS iterations of
+# the main watch loop (each iteration sleeps 5s, so this is roughly every
+# DIAG_INTERVAL_LOOPS * 5 seconds). Purely informational - never affects the
+# bridge itself - but this is the only way to see whether traffic is actually
+# reaching each side without SSH access to the device.
+DIAG_INTERVAL_LOOPS=6
+diag_snapshot() {
+  log "--- diagnostic snapshot ---"
+  log "$ETH_IF: $(ip -4 -br addr show "$ETH_IF" 2>/dev/null) (promisc: $(ip link show "$ETH_IF" 2>/dev/null | grep -o PROMISC || echo off))"
+  log "$WLAN_IF: $(ip -4 -br addr show "$WLAN_IF" 2>/dev/null) (promisc: $(ip link show "$WLAN_IF" 2>/dev/null | grep -o PROMISC || echo off))"
+  ETH_NEIGH=$(ip neigh show dev "$ETH_IF" 2>/dev/null)
+  if [ -n "$ETH_NEIGH" ]; then
+    log "ARP/neighbor entries on $ETH_IF (a plugged-in client should show up here once it sends any traffic):"
+    echo "$ETH_NEIGH" | while IFS= read -r line; do log "  $line"; done
+  else
+    log "No ARP/neighbor entries on $ETH_IF yet - nothing has been heard from a device plugged into it."
+  fi
+  if [ -n "$IPTABLES_BIN" ]; then
+    log "FORWARD chain packet/byte counters ($ETH_IF -> $WLAN_IF, $WLAN_IF -> $ETH_IF):"
+    "$IPTABLES_BIN" -L FORWARD -v -n 2>/dev/null | grep -E "$ETH_IF|$WLAN_IF" | while IFS= read -r line; do log "  $line"; done
+  fi
+  log "--- end diagnostic snapshot ---"
 }
 
 CURRENT_IP_FORWARD=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "unknown")
@@ -101,7 +126,15 @@ log "so Home Assistant's own network manager doesn't also try to configure it."
 
 ip addr add "${WLAN_IP}/32" dev "$ETH_IF" 2>/dev/null
 ip link set dev "$ETH_IF" up
+# Promiscuous mode on BOTH interfaces, matching the original blog post recipe
+# this add-on is based on. Earlier releases only set this on $WLAN_IF -
+# without it on $ETH_IF too, parprouted may not reliably see ARP/DHCP frames
+# from a device plugged into Ethernet, depending on the NIC driver.
 ip link set "$WLAN_IF" promisc on
+ip link set "$ETH_IF" promisc on
+log "Interface state after setup:"
+log "  $ETH_IF: $(ip -4 -br addr show "$ETH_IF" 2>/dev/null) (promisc: $(ip link show "$ETH_IF" 2>/dev/null | grep -o PROMISC || echo off))"
+log "  $WLAN_IF: $(ip -4 -br addr show "$WLAN_IF" 2>/dev/null) (promisc: $(ip link show "$WLAN_IF" 2>/dev/null | grep -o PROMISC || echo off))"
 
 # Docker manages its own rules AND default policy on the host's FORWARD
 # chain, and does not automatically allow traffic between two non-Docker
@@ -156,6 +189,7 @@ fi
 
 log "Bridge is up: WiFi ($WLAN_IF, $WLAN_IP) <-> Ethernet ($ETH_IF)"
 
+LOOP_COUNT=0
 while [ "$STOP" = "0" ]; do
   if ! kill -0 "$DHCP_PID" 2>/dev/null; then
     log "ERROR: dhcp-helper exited unexpectedly."
@@ -164,6 +198,10 @@ while [ "$STOP" = "0" ]; do
   if ! pgrep -x parprouted > /dev/null; then
     log "ERROR: parprouted exited unexpectedly."
     break
+  fi
+  LOOP_COUNT=$((LOOP_COUNT + 1))
+  if [ "$((LOOP_COUNT % DIAG_INTERVAL_LOOPS))" = "0" ]; then
+    diag_snapshot
   fi
   sleep 5
 done

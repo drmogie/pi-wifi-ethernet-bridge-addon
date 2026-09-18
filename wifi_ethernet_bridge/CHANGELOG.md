@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026.09.18.6
+
+- Confirmed `.5`'s `sysctls`/`iptables-nft` fixes actually took effect (a
+  fresh device log showed the entire startup sequence complete with zero
+  errors - `ip_forward` enabled, FORWARD policy set, `dhcp-helper` and
+  `parprouted` both started, "Bridge is up") - but a device plugged into
+  Ethernet still got no network access. Also ruled out Home Assistant's own
+  NetworkManager fighting for the Ethernet interface (confirmed already
+  correctly set to Disabled).
+- Found a real, concrete gap against the blog post recipe this add-on is
+  based on (willhaley.com's Raspberry Pi WiFi<->Ethernet bridge): that
+  recipe sets **both** interfaces to promiscuous mode before starting
+  `parprouted`, but this add-on had only ever set it on the WiFi interface,
+  never the Ethernet one. Without it on the Ethernet side, `parprouted` may
+  not reliably see ARP/DHCP frames from a device plugged in, depending on
+  the NIC driver. Fixed to match the recipe exactly (both interfaces,
+  cleaned up symmetrically on stop).
+- Added on-log diagnostics, since there's no SSH access to inspect this
+  live: after setup, logs each interface's address/promiscuous state, and
+  every ~30 seconds while running, logs a snapshot of the ARP/neighbor table
+  on the Ethernet interface (so we can see whether anything has even been
+  heard from a plugged-in device) and the FORWARD chain's packet/byte
+  counters (so we can see whether any packets are actually hitting the
+  forwarding rules). If the promiscuous-mode fix alone doesn't resolve it,
+  this diagnostic output is what we need from the next test to find the
+  actual point where packets stop.
+
 ## 2026.09.18.5
 
 - Found the actual fix for "not passing through end0" by comparing against a
