@@ -48,9 +48,7 @@ Same prerequisites as the standard add-on:
 2. Click the **⋮** menu (top right) → **Repositories**, and add the URL of
    this repository (the same one as the standard add-on — both live here).
 3. Find **WiFi to Ethernet Bridge (Broadcast Relay)** in the store and click
-   **Install**. The first install builds the Docker image on your device,
-   which takes a bit longer than the standard add-on since it compiles
-   `udp-broadcast-relay-redux` from source.
+   **Install**.
 4. Open the add-on's **Configuration** tab if your interface names aren't
    the defaults (see below), then go to **Info** and click **Start**.
 5. Plug the wired-only device into this device's Ethernet port. It should
@@ -76,14 +74,23 @@ specific server address.
 - `parprouted` answers ARP requests on each interface on behalf of the other
   ("proxy ARP"), exactly as in the standard add-on.
 - Instead of `dhcp-helper` (a DHCP relay agent), this add-on runs
-  `udp-broadcast-relay-redux` — a small, single-purpose daemon that just
-  retransmits UDP broadcast packets it sees on one interface out onto the
-  other, unmodified. Two instances run: one for port 67 (the client's
-  request, Ethernet → WiFi) and one for port 68 (the DHCP server's reply,
-  if it broadcasts it, WiFi → Ethernet). Neither instance rewrites the
-  packet in any way — no Gateway-IP/relay-agent field gets added, so the
-  DHCP server sees a plain, ordinary broadcast, indistinguishable from any
-  other directly-attached client on the network.
+  `l2_broadcast_relay.py` — a small script (Python 3, standard library
+  only) that captures raw Ethernet frames on one interface via `AF_PACKET`
+  (the same technique `tcpdump` uses) and retransmits any matching frame
+  onto the other interface, unmodified. It does this instead of binding a
+  UDP socket to the DHCP port, because on this exact kind of device (whose
+  own `wlan0` gets its address via DHCP) binding port 68 always collides
+  with the host's own DHCP client — see the CHANGELOG's `2026.09.19.03`
+  entry for the full story. Two instances run: one for port 67 (the
+  client's request, Ethernet → WiFi) and one for port 68 (the DHCP
+  server's reply, WiFi → Ethernet). Neither instance rewrites the packet
+  in any way — no Gateway-IP/relay-agent field gets added, so the DHCP
+  server sees a plain, ordinary broadcast, indistinguishable from any
+  other directly-attached client on the network. Because both interfaces
+  are in promiscuous mode, the port-68 instance also picks up a reply the
+  server sent as a genuine unicast frame to the client's own MAC address
+  (see Limitations below) — something a plain UDP-socket-based relay could
+  never see.
 - IPv4 forwarding is turned on so traffic actually passes between the two
   interfaces once the client has an address.
 
@@ -95,17 +102,17 @@ control of your device's real `wlan0`/`eth0` interfaces.
 
 - Everything in the standard add-on's Limitations section applies here too
   (one wired client, WiFi-capped throughput, same-subnet requirement).
-- **A DHCP server that unicasts its OFFER/ACK won't be caught by this
-  add-on.** RFC 2131 allows a DHCP server to send its reply straight to the
-  client's hardware address (skipping broadcast) when the client's
-  DHCPDISCOVER didn't set the "broadcast" flag — a pure broadcast relay like
-  this one only ever retransmits genuinely broadcast traffic, so it can't
-  help with that case. Check a `packet_capture` snapshot: if the client's
-  request goes out fine on the WiFi interface but you still never see a
-  reply captured there either, this is likely what's happening, and neither
-  add-on in this repository currently has a fix for it — that would need a
-  proper relay agent that also handles unicast BOOTREPLY delivery based on
-  the request's `chaddr` field.
+- **A DHCP server that unicasts its OFFER/ACK straight to the client's MAC
+  address** (RFC 2131 allows this when the client's DHCPDISCOVER didn't set
+  the "broadcast" flag) was an open risk with earlier versions of this
+  add-on, since a broadcast-only relay can't see traffic that was never
+  broadcast in the first place. As of `2026.09.19.03`, the relay reads raw
+  frames on an already-promiscuous interface rather than binding a UDP
+  port, so it should also catch a unicast reply addressed to someone
+  else's MAC — but this hasn't been confirmed against a real DHCP server
+  that actually does this yet. If a `packet_capture` snapshot still shows
+  the client's request going out fine on the WiFi interface but no reply
+  ever captured there, that's the next thing to report back.
 
 ## Troubleshooting
 
@@ -115,7 +122,7 @@ Check the add-on's **Log** tab first — every line is prefixed
 - **"never got an IPv4 address"**, **"parprouted failed to start"**, wired
   client gets no IP at all: same causes and same fixes as the standard
   add-on — see its DOCS.md Troubleshooting section.
-- **"udp-broadcast-relay-redux failed to start"**: same underlying cause as
+- **"the L2 broadcast relay failed to start"**: same underlying cause as
   a parprouted start failure — usually missing `NET_ADMIN`/`NET_RAW`, or
   `eth_interface`/`wlan_interface` not matching real interface names.
 - Client gets an IP relayed correctly (per a `packet_capture` snapshot on

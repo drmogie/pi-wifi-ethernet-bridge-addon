@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026.09.19.03
+
+Replaced `udp-broadcast-relay-redux` entirely after finding a real,
+structural bug: it receives by binding a plain UDP socket to
+`0.0.0.0:<port>`, and on port 68 that always collides with the HOST's own
+DHCP client - which this exact device needs anyway, since `wlan0` gets
+its own address via DHCP. That client was already bound to port 68 before
+this add-on ever started, and (very likely) never set `SO_REUSEPORT`
+itself, so nothing else can ever bind that port alongside it, on any
+device this add-on is meant to run on. The port-68 instance failing to
+start every time is what tripped this add-on's own health check and shut
+the whole bridge down (see `2026.09.19.02` above).
+
+Fixed by swapping in a small new script, `l2_broadcast_relay.py`
+(Python 3, standard library only), which captures raw Ethernet frames via
+`AF_PACKET` - the same technique `tcpdump` uses - instead of binding a UDP
+port at all, so there is nothing for the host's DHCP client to conflict
+with. It filters for the target UDP destination port itself and
+retransmits the untouched IP/UDP/DHCP payload as a fresh Ethernet-broadcast
+frame on the other interface.
+
+Possible side benefit, not yet confirmed: because both interfaces are
+already in promiscuous mode, this also picks up a DHCP reply sent as a
+genuine *unicast* frame straight to the client's MAC address - something a
+plain broadcast-only relay can never see. That was a separately-documented
+open risk (a DHCP server is allowed, per RFC 2131, to unicast its reply
+when the client's DHCPDISCOVER left the "broadcast" flag unset) - this
+rewrite may resolve it as a side effect, but that still needs a real
+retest to know for sure.
+
 ## 2026.09.19.02
 
 Fixed a real bug found on first install (Mogie): both `udp-broadcast-relay-redux`

@@ -72,10 +72,7 @@ trap 'STOP=1' SIGTERM SIGINT
 
 cleanup() {
   log "Stopping bridge..."
-  # udp-broadcast-relay-redux's own process name (25 chars) gets truncated by
-  # the kernel's 15-char comm limit, so `pkill -x` against the full name
-  # would never match - use `-f` (matches the full command line) instead.
-  pkill -f udp-broadcast-relay-redux 2>/dev/null || true
+  pkill -f l2_broadcast_relay.py 2>/dev/null || true
   pkill -x parprouted 2>/dev/null || true
   if [ "$ENABLE_AVAHI" = "true" ]; then
     pkill -x avahi-daemon 2>/dev/null || true
@@ -258,20 +255,20 @@ if [ "$ENABLE_AVAHI" = "true" ]; then
 fi
 
 start_broadcast_relay() {
-  # Two separate instances, one per DHCP port: 67 carries the client's
-  # request (Ethernet -> WiFi direction) and 68 carries the server's reply
-  # when it broadcasts it back (WiFi -> Ethernet direction). A single
-  # instance can't cover both since they're different UDP ports. Distinct
-  # -id values (used for the tool's own loop-prevention TTL marking) since
-  # these are two independent relay instances on this device. Run in the
-  # foreground as our own background job (no -f) so we get a real PID to
-  # `wait` on and can see its own exit code/signal directly, same reasoning
-  # as parprouted below.
-  log "Starting UDP broadcast relay, port 67 (client requests: $ETH_IF -> $WLAN_IF)"
-  /usr/sbin/udp-broadcast-relay-redux --id 91 --port 67 --dev "$ETH_IF" --dev "$WLAN_IF" &
+  # Two separate directional relays, one per DHCP port: 67 carries the
+  # client's request (Ethernet -> WiFi direction) and 68 carries the
+  # server's reply when it broadcasts it back (WiFi -> Ethernet direction).
+  # These capture raw Ethernet frames via AF_PACKET (see
+  # l2_broadcast_relay.py's own header comment for why - in short,
+  # binding a normal UDP socket to port 68 conflicts with the host's own
+  # DHCP client on this exact kind of device) rather than binding the UDP
+  # port itself, so there's nothing here for the host's own DHCP client to
+  # conflict with.
+  log "Starting L2 broadcast relay, port 67 (client requests: $ETH_IF -> $WLAN_IF)"
+  /usr/bin/python3 /usr/sbin/l2_broadcast_relay.py --port 67 --recv-if "$ETH_IF" --send-if "$WLAN_IF" &
   BCAST67_PID=$!
-  log "Starting UDP broadcast relay, port 68 (broadcast replies: $WLAN_IF -> $ETH_IF)"
-  /usr/sbin/udp-broadcast-relay-redux --id 92 --port 68 --dev "$ETH_IF" --dev "$WLAN_IF" &
+  log "Starting L2 broadcast relay, port 68 (broadcast/unicast replies: $WLAN_IF -> $ETH_IF)"
+  /usr/bin/python3 /usr/sbin/l2_broadcast_relay.py --port 68 --recv-if "$WLAN_IF" --send-if "$ETH_IF" &
   BCAST68_PID=$!
 }
 
@@ -308,7 +305,7 @@ if ! kill -0 "$PARPROUTED_PID" 2>/dev/null; then
   exit 1
 fi
 if ! kill -0 "$BCAST67_PID" 2>/dev/null || ! kill -0 "$BCAST68_PID" 2>/dev/null; then
-  log "ERROR: udp-broadcast-relay-redux failed to start. Check that $ETH_IF and $WLAN_IF exist and this add-on has NET_ADMIN/NET_RAW."
+  log "ERROR: the L2 broadcast relay failed to start. Check that $ETH_IF and $WLAN_IF exist and this add-on has NET_ADMIN/NET_RAW."
   cleanup
   exit 1
 fi
@@ -328,18 +325,18 @@ LOOP_COUNT=0
 while [ "$STOP" = "0" ]; do
   if ! kill -0 "$BCAST67_PID" 2>/dev/null; then
     wait "$BCAST67_PID"
-    log_exit_reason "udp-broadcast-relay-redux (port 67)" "$?"
+    log_exit_reason "L2 broadcast relay (port 67)" "$?"
     sleep 1
-    log "Restarting UDP broadcast relay, port 67 (client requests: $ETH_IF -> $WLAN_IF)"
-    /usr/sbin/udp-broadcast-relay-redux --id 91 --port 67 --dev "$ETH_IF" --dev "$WLAN_IF" &
+    log "Restarting L2 broadcast relay, port 67 (client requests: $ETH_IF -> $WLAN_IF)"
+    /usr/bin/python3 /usr/sbin/l2_broadcast_relay.py --port 67 --recv-if "$ETH_IF" --send-if "$WLAN_IF" &
     BCAST67_PID=$!
   fi
   if ! kill -0 "$BCAST68_PID" 2>/dev/null; then
     wait "$BCAST68_PID"
-    log_exit_reason "udp-broadcast-relay-redux (port 68)" "$?"
+    log_exit_reason "L2 broadcast relay (port 68)" "$?"
     sleep 1
-    log "Restarting UDP broadcast relay, port 68 (broadcast replies: $WLAN_IF -> $ETH_IF)"
-    /usr/sbin/udp-broadcast-relay-redux --id 92 --port 68 --dev "$ETH_IF" --dev "$WLAN_IF" &
+    log "Restarting L2 broadcast relay, port 68 (broadcast/unicast replies: $WLAN_IF -> $ETH_IF)"
+    /usr/bin/python3 /usr/sbin/l2_broadcast_relay.py --port 68 --recv-if "$WLAN_IF" --send-if "$ETH_IF" &
     BCAST68_PID=$!
   fi
   if ! kill -0 "$PARPROUTED_PID" 2>/dev/null; then
