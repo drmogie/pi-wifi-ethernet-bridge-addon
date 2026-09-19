@@ -268,10 +268,10 @@ start_broadcast_relay() {
   # `wait` on and can see its own exit code/signal directly, same reasoning
   # as parprouted below.
   log "Starting UDP broadcast relay, port 67 (client requests: $ETH_IF -> $WLAN_IF)"
-  /usr/sbin/udp-broadcast-relay-redux -id 91 --port 67 --dev "$ETH_IF" --dev "$WLAN_IF" &
+  /usr/sbin/udp-broadcast-relay-redux --id 91 --port 67 --dev "$ETH_IF" --dev "$WLAN_IF" &
   BCAST67_PID=$!
   log "Starting UDP broadcast relay, port 68 (broadcast replies: $WLAN_IF -> $ETH_IF)"
-  /usr/sbin/udp-broadcast-relay-redux -id 92 --port 68 --dev "$ETH_IF" --dev "$WLAN_IF" &
+  /usr/sbin/udp-broadcast-relay-redux --id 92 --port 68 --dev "$ETH_IF" --dev "$WLAN_IF" &
   BCAST68_PID=$!
 }
 
@@ -331,7 +331,7 @@ while [ "$STOP" = "0" ]; do
     log_exit_reason "udp-broadcast-relay-redux (port 67)" "$?"
     sleep 1
     log "Restarting UDP broadcast relay, port 67 (client requests: $ETH_IF -> $WLAN_IF)"
-    /usr/sbin/udp-broadcast-relay-redux -id 91 --port 67 --dev "$ETH_IF" --dev "$WLAN_IF" &
+    /usr/sbin/udp-broadcast-relay-redux --id 91 --port 67 --dev "$ETH_IF" --dev "$WLAN_IF" &
     BCAST67_PID=$!
   fi
   if ! kill -0 "$BCAST68_PID" 2>/dev/null; then
@@ -339,7 +339,7 @@ while [ "$STOP" = "0" ]; do
     log_exit_reason "udp-broadcast-relay-redux (port 68)" "$?"
     sleep 1
     log "Restarting UDP broadcast relay, port 68 (broadcast replies: $WLAN_IF -> $ETH_IF)"
-    /usr/sbin/udp-broadcast-relay-redux -id 92 --port 68 --dev "$ETH_IF" --dev "$WLAN_IF" &
+    /usr/sbin/udp-broadcast-relay-redux --id 92 --port 68 --dev "$ETH_IF" --dev "$WLAN_IF" &
     BCAST68_PID=$!
   fi
   if ! kill -0 "$PARPROUTED_PID" 2>/dev/null; then
