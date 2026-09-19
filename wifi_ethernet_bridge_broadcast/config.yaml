@@ -1,0 +1,27 @@
+name: "WiFi to Ethernet Bridge (Broadcast Relay)"
+version: "2026.09.19.01"
+slug: "wifi_ethernet_bridge_broadcast"
+description: "Share this device's WiFi connection out its Ethernet port using a raw UDP broadcast relay instead of a DHCP relay agent. Use this instead of the standard WiFi to Ethernet Bridge add-on if your DHCP server never replies to a relayed (non-zero Gateway-IP) request - some DHCP servers, including Technitium DNS Server, silently drop a relayed request when the relay agent's own address is on the very same subnet as the DHCP scope. This variant works around that by retransmitting the client's original DHCP broadcast unmodified between the two interfaces, so the server sees it exactly like an ordinary directly-attached client rather than a relayed one."
+url: "https://github.com/drmogie/pi-wifi-ethernet-bridge-addon"
+arch:
+  - aarch64
+  - amd64
+startup: services
+boot: auto
+init: false
+host_network: true
+privileged:
+  - NET_ADMIN
+  - NET_RAW
+sysctls:
+  net.ipv4.ip_forward: 1
+options:
+  wlan_interface: wlan0
+  eth_interface: eth0
+  enable_avahi_reflector: false
+  debug_mode: basic
+schema:
+  wlan_interface: str
+  eth_interface: str
+  enable_avahi_reflector: bool
+  debug_mode: "list(off|basic|verbose|packet_capture)"

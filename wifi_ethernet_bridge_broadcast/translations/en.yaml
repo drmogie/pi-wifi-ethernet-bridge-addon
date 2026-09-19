@@ -1,0 +1,33 @@
+configuration:
+  wlan_interface:
+    name: WiFi Interface
+    description: >-
+      The name of your WiFi network interface. wlan0 on virtually all Pi
+      setups — change it only if `ip a` on your device shows something
+      different.
+  eth_interface:
+    name: Ethernet Interface
+    description: >-
+      The name of the Ethernet interface to bridge. eth0 on a Pi 4.
+  enable_avahi_reflector:
+    name: Enable mDNS Reflector
+    description: >-
+      Reflect mDNS (.local name / Bonjour) traffic between the WiFi and
+      Ethernet interfaces, so devices on either side can discover each other
+      by name. Leave off if you don't need this.
+  debug_mode:
+    name: Debug Mode
+    description: >-
+      How much diagnostic detail the add-on writes to its log, with no
+      SSH/device access needed. Off: just startup messages. Basic (default):
+      a snapshot every ~30s of interface state, ARP entries seen on the
+      Ethernet interface, and forwarding-rule packet counters. Verbose: the
+      same, every ~10s, plus routing table and interface RX/TX statistics.
+      Packet Capture: everything in Verbose, plus a real DHCP-only packet
+      capture run on BOTH the Ethernet and WiFi interfaces at the same time
+      each cycle, so you can see the full relay round trip (a client's
+      request arriving on Ethernet, the broadcast relay retransmitting it
+      onto WiFi, and the DHCP server's reply) - the most detailed option,
+      useful when nothing else shows why traffic isn't passing through. A
+      working request here should show NO Gateway-IP field at all, unlike
+      the standard add-on - this variant never rewrites the packet.
